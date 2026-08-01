@@ -5,6 +5,7 @@ import math
 import shutil
 import tempfile
 import subprocess
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -17,9 +18,13 @@ except Exception:
     tqdm = None
 
 import sys, os
-repo_root = "/workspace/Real-ESRGAN"
+PROJECT_ROOT = Path(__file__).resolve().parent
+repo_root = str(PROJECT_ROOT / "Real-ESRGAN")
 if os.path.isdir(os.path.join(repo_root, "realesrgan")):
     sys.path.insert(0, repo_root)
+basicsr_root = PROJECT_ROOT / "BasicSR"
+if (basicsr_root / "basicsr").is_dir():
+    sys.path.insert(0, str(basicsr_root))
 
 from realesrgan import RealESRGANer
 from realesrgan.archs.srvgg_arch import SRVGGNetCompact
@@ -50,6 +55,21 @@ def _init_state():
     ss.setdefault("ffmpeg_proc", None)       # handle to kill ffmpeg if needed
 
 _init_state()
+
+def media_tool(name: str) -> str:
+    """Find FFmpeg tools when Finder provides a minimal PATH."""
+    candidates = [
+        shutil.which(name),
+        f"/opt/homebrew/bin/{name}",
+        f"/usr/local/bin/{name}",
+        f"/usr/bin/{name}",
+    ]
+    for candidate in candidates:
+        if candidate and os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    raise FileNotFoundError(
+        f"{name} was not found. Install FFmpeg with: brew install ffmpeg"
+    )
 
 def config_hash(**kwargs) -> str:
     # Small stable fingerprint of current inputs/settings
@@ -137,7 +157,7 @@ def run_ffmpeg(args: list) -> None:
 def ffmpeg_has_nvenc() -> bool:
     try:
         proc = subprocess.run([
-            "ffmpeg", "-hide_banner", "-loglevel", "error", "-h", "encoder=h264_nvenc"
+            media_tool("ffmpeg"), "-hide_banner", "-loglevel", "error", "-h", "encoder=h264_nvenc"
         ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         return proc.returncode == 0
     except Exception:
@@ -146,7 +166,7 @@ def ffmpeg_has_nvenc() -> bool:
 
 def ffprobe_value(file: str, stream_selector: str, entry: str, default: str = "") -> str:
     proc = subprocess.run(
-        ["ffprobe", "-v", "error", "-select_streams", stream_selector,
+        [media_tool("ffprobe"), "-v", "error", "-select_streams", stream_selector,
          "-show_entries", entry, "-of", "default=nw=1", file],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
     )
@@ -261,6 +281,7 @@ def build_model(model_name: str, scale: int, tile: int, tile_pad: int, fp16: boo
                 f"Please place the .pth file at: {model_path}"
             )
 
+    device = torch_device()
     upsampler = RealESRGANer(
         scale=4,  # native model scale; we’ll use outscale to rescale again if needed
         model_path=model_path if isinstance(model_path, list) else str(model_path),
@@ -269,7 +290,8 @@ def build_model(model_name: str, scale: int, tile: int, tile_pad: int, fp16: boo
         tile=tile,
         tile_pad=tile_pad,
         pre_pad=0,
-        half=fp16 and (torch_cuda_available()),
+        half=fp16 and (device.type == "cuda"),
+        device=device,
     )
     upsampler.model.name = model_name  # for logging
     return upsampler, outscale
@@ -280,6 +302,19 @@ def torch_cuda_available() -> bool:
         return torch.cuda.is_available()
     except Exception:
         return False
+
+def torch_device():
+    """Prefer Apple's GPU on native macOS, then CUDA, then CPU."""
+    import torch
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    return torch.device("cpu")
+
+def ffmpeg_decode_args() -> list[str]:
+    """Use CUDA decoding only when the native runtime actually has CUDA."""
+    return ["-hwaccel", "cuda"] if torch_cuda_available() else []
 
 def enhance_image(upsampler: RealESRGANer, img: Image.Image, outscale: int) -> Image.Image:
     img_np = np.array(img)[:, :, ::-1]  # RGB->BGR
@@ -373,13 +408,13 @@ if input_type == "Video" and uploaded_video and start and not st.session_state.w
 
     try:
         # Persistent output workspace under /workspace/output
-        output_root = Path("/workspace/output")
+        output_root = PROJECT_ROOT / "output"
         output_root.mkdir(parents=True, exist_ok=True)
         run_dir = output_root / f"run_{run_token}"
         run_dir.mkdir(parents=True, exist_ok=True)
 
         # Prefer existing /workspace/data/models; else use /workspace/output/models
-        data_models = Path("/workspace/data/models")
+        data_models = PROJECT_ROOT / "data" / "models"
         weights_dir = data_models if data_models.exists() else (output_root / "models")
         weights_dir.mkdir(parents=True, exist_ok=True)
 
@@ -405,7 +440,7 @@ if input_type == "Video" and uploaded_video and start and not st.session_state.w
 
             st.info("Extracting frames…")
             run_ffmpeg([
-                "ffmpeg", "-y", "-hwaccel", "cuda", "-i", str(in_path), "-vsync", "0",
+                media_tool("ffmpeg"), "-y", *ffmpeg_decode_args(), "-i", str(in_path), "-vsync", "0",
                 "-q:v", "2", str(in_frames / "f_%06d.jpg")
             ])
 
@@ -414,7 +449,7 @@ if input_type == "Video" and uploaded_video and start and not st.session_state.w
 
             audio_path = run_dir / "audio.m4a"
             if keep_audio and has_audio:
-                run_ffmpeg(["ffmpeg", "-y", "-i", str(in_path), "-vn", "-acodec", "copy", str(audio_path)])
+                run_ffmpeg([media_tool("ffmpeg"), "-y", "-i", str(in_path), "-vn", "-acodec", "copy", str(audio_path)])
 
             # Load upsampler
             upsampler, outscale = build_model(model_name, upscale, tile, tile_pad, fp16, weights_dir, denoise_strength)
@@ -463,7 +498,7 @@ if input_type == "Video" and uploaded_video and start and not st.session_state.w
 
             def base_encode_args():
                 args = [
-                    "ffmpeg", "-y",
+                    media_tool("ffmpeg"), "-y",
                     "-framerate", f"{fps:.6f}",
                     "-start_number", "1",
                     "-i", frame_pattern,
@@ -509,13 +544,13 @@ elif input_type == "Image" and uploaded_image and start and not st.session_state
 
     try:
         # Persistent output workspace under /workspace/output
-        output_root = Path("/workspace/output")
+        output_root = PROJECT_ROOT / "output"
         output_root.mkdir(parents=True, exist_ok=True)
         run_dir = output_root / f"run_{run_token}"
         run_dir.mkdir(parents=True, exist_ok=True)
 
         # Prefer existing /workspace/data/models; else use /workspace/output/models
-        data_models = Path("/workspace/data/models")
+        data_models = PROJECT_ROOT / "data" / "models"
         weights_dir = data_models if data_models.exists() else (output_root / "models")
         weights_dir.mkdir(parents=True, exist_ok=True)
 

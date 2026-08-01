@@ -1,0 +1,3 @@
+#!/bin/sh
+pkill -f "streamlit run streamlit_app.py" 2>/dev/null || true
+osascript -e 'display notification "Real-ESRGAN Upscaler stopped" with title "Real-ESRGAN"' 2>/dev/null || true

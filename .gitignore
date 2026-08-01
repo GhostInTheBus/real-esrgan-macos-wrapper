@@ -7,6 +7,13 @@ wandb/*
 tmp/*
 weights/*
 data/models/*
+output/*
+output/.gitkeep
+icon.iconset/
+*.icns
+.native-bin/
+.agents/
+.claude/
 
 version.py
 

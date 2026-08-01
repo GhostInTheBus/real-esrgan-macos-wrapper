@@ -1,4 +1,6 @@
-# Real-ESRGAN Image/Video Upscaler (Streamlit)
+# Real-ESRGAN macOS Wrapper
+
+An unofficial native macOS wrapper around Real-ESRGAN with a Streamlit image/video interface and a double-clickable ON/OFF app launcher.
 
 <p align="center">
   <img src="Real-ESRGAN/assets/realesrgan_logo.png" alt="Real-ESRGAN" width="300"/>
@@ -21,6 +23,24 @@ A lightweight Streamlit UI around Real-ESRGAN for upscaling videos and images. I
 - Persistent outputs under `/workspace/output`
 
 ## Quick Start
+
+Native macOS (Apple Silicon):
+
+```
+./run_native.sh
+# Open http://127.0.0.1:8501
+```
+
+The native launcher uses `/Users/Joe/Miniforge3/bin/python`, the checked-out
+BasicSR source, and the model weights already present in `output/models/`.
+Native paths are resolved relative to this project, so Docker's `/workspace`
+mount is not required.
+
+The Desktop app bundle is included as `Real-ESRGAN Upscaler.app`. Copy it to
+the macOS Desktop and double-click it. It presents an ON/OFF control, starts
+the local server, opens the browser, and downloads missing model weights on
+first use. Generated outputs and model weights are intentionally not committed
+to GitHub.
 
 Docker (recommended):
 
@@ -84,4 +104,3 @@ The app attempts to download these if not present. In restricted environments, d
 
 ## Acknowledgements
 - Real-ESRGAN by Xintao et al. https://github.com/xinntao/Real-ESRGAN
-
