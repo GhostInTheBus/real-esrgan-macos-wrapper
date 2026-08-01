@@ -1,69 +1,164 @@
 import Cocoa
-import Foundation
+import SwiftUI
+import Combine
 
-final class ToggleController: NSObject, NSApplicationDelegate, NSWindowDelegate {
+class AppState: ObservableObject {
+    @Published var isRunning = false
+    @Published var isStarting = false
+    @Published var statusText = "Checking status..."
+}
+
+struct PopoverView: View {
+    @ObservedObject var state: AppState
+    let toggleAction: (Bool) -> Void
+    let openBrowserAction: () -> Void
+    let viewLogsAction: () -> Void
+    let quitAction: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Image(systemName: "wand.and.stars")
+                    .font(.title2)
+                    .foregroundColor(.accentColor)
+                VStack(alignment: .leading) {
+                    Text("Real-ESRGAN")
+                        .font(.headline)
+                    Text("Upscaler")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+            }
+            
+            Divider()
+
+            HStack {
+                VStack(alignment: .leading) {
+                    Text("Server Status")
+                        .font(.body)
+                    Text(state.statusText)
+                        .font(.caption)
+                        .foregroundColor(state.isRunning ? .green : (state.isStarting ? .orange : .secondary))
+                }
+                Spacer()
+                if state.isStarting {
+                    ProgressView().controlSize(.small).padding(.trailing, 4)
+                }
+                Toggle("", isOn: Binding(
+                    get: { self.state.isRunning || self.state.isStarting },
+                    set: { newValue in self.toggleAction(newValue) }
+                ))
+                .labelsHidden()
+                .toggleStyle(SwitchToggleStyle())
+            }
+
+            Divider()
+
+            VStack(spacing: 8) {
+                Button(action: openBrowserAction) {
+                    HStack {
+                        Image(systemName: "safari")
+                        Text("Open in Browser")
+                        Spacer()
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(PlainButtonStyle())
+                .foregroundColor(state.isRunning ? .primary : .secondary)
+                .disabled(!state.isRunning)
+
+                Button(action: viewLogsAction) {
+                    HStack {
+                        Image(systemName: "doc.text")
+                        Text("View Logs")
+                        Spacer()
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                Button(action: quitAction) {
+                    HStack {
+                        Image(systemName: "power")
+                        Text("Quit")
+                        Spacer()
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+        }
+        .padding(16)
+        .frame(width: 250)
+    }
+}
+
+final class MenuBarController: NSObject, NSApplicationDelegate {
     private let projectRoot = "/Users/Joe/real-esrgan-web-app"
-    private var window: NSWindow!
-    private var toggle: NSSwitch!
-    private var status: NSTextField!
+    private var statusItem: NSStatusItem!
+    private var popover: NSPopover!
+    
     private var serverProcess: Process?
-    private var openedBrowser = false
-    private var starting = false
+    private var updateTimer: Timer?
+    
+    private let appState = AppState()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let content = NSView(frame: NSRect(x: 0, y: 0, width: 360, height: 150))
-
-        let title = NSTextField(labelWithString: "Real-ESRGAN Upscaler")
-        title.font = NSFont.systemFont(ofSize: 20, weight: .semibold)
-        title.frame = NSRect(x: 24, y: 102, width: 312, height: 26)
-        content.addSubview(title)
-
-        let subtitle = NSTextField(labelWithString: "Image and video upscaling")
-        subtitle.textColor = .secondaryLabelColor
-        subtitle.frame = NSRect(x: 24, y: 78, width: 250, height: 20)
-        content.addSubview(subtitle)
-
-        toggle = NSSwitch(frame: NSRect(x: 275, y: 76, width: 60, height: 24))
-        toggle.target = self
-        toggle.action = #selector(toggleChanged(_:))
-        toggle.controlSize = .regular
-        content.addSubview(toggle)
-
-        status = NSTextField(labelWithString: "Checking status…")
-        status.textColor = .secondaryLabelColor
-        status.frame = NSRect(x: 24, y: 32, width: 312, height: 20)
-        content.addSubview(status)
-
-        window = NSWindow(contentRect: content.bounds,
-                          styleMask: [.titled, .closable, .miniaturizable],
-                          backing: .buffered, defer: false)
-        window.title = "Real-ESRGAN"
-        window.contentView = content
-        window.delegate = self
-        window.center()
-        window.isReleasedWhenClosed = false
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        if let button = statusItem.button {
+            button.image = NSImage(systemSymbolName: "wand.and.stars", accessibilityDescription: "Real-ESRGAN")
+            if button.image == nil { button.title = "✨" }
+            button.action = #selector(togglePopover(_:))
+            button.target = self
+        }
+        
+        let view = PopoverView(
+            state: appState,
+            toggleAction: { [weak self] isOn in
+                if isOn { self?.startServer() }
+                else { self?.stopServer() }
+            },
+            openBrowserAction: { [weak self] in self?.openBrowser() },
+            viewLogsAction: { [weak self] in self?.viewLogs() },
+            quitAction: { [weak self] in self?.quitApp() }
+        )
+        
+        popover = NSPopover()
+        popover.contentSize = NSSize(width: 250, height: 220)
+        popover.behavior = .transient
+        popover.contentViewController = NSHostingController(rootView: view)
 
         updateStatus()
-        Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+        updateTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             self?.updateStatus()
         }
     }
 
-    @objc private func toggleChanged(_ sender: NSSwitch) {
-        if sender.state == .on {
-            startServer()
+    @objc private func togglePopover(_ sender: AnyObject?) {
+        if popover.isShown {
+            closePopover(sender: sender)
         } else {
-            stopServer()
+            showPopover(sender: sender)
         }
+    }
+
+    private func showPopover(sender: AnyObject?) {
+        if let button = statusItem.button {
+            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            NSApplication.shared.activate(ignoringOtherApps: true)
+        }
+    }
+
+    private func closePopover(sender: AnyObject?) {
+        popover.performClose(sender)
     }
 
     private func startServer() {
         if serverRunning() { return }
-        status.stringValue = "Starting…"
-        starting = true
-        openedBrowser = false
+        appState.isStarting = true
+        appState.statusText = "Starting..."
+        updateIcon()
+        
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = ["\(projectRoot)/run_native.sh"]
@@ -78,41 +173,71 @@ final class ToggleController: NSObject, NSApplicationDelegate, NSWindowDelegate 
             try process.run()
             serverProcess = process
         } catch {
-            status.stringValue = "Could not start — see native.log"
-            toggle.state = .off
+            appState.isStarting = false
+            appState.statusText = "Failed to start"
         }
     }
 
     private func stopServer() {
-        status.stringValue = "Stopping…"
-        starting = false
+        appState.isStarting = false
         serverProcess?.terminate()
         serverProcess = nil
         _ = shell("/usr/sbin/lsof -tiTCP:8501 -sTCP:LISTEN").split(separator: "\n").map {
             _ = shell("/bin/kill \(String($0))")
         }
         serverProcess = nil
+        appState.isRunning = false
+        appState.statusText = "OFF"
+        updateIcon()
+    }
+
+    private func openBrowser() {
+        NSWorkspace.shared.open(URL(string: "http://127.0.0.1:8501")!)
+        closePopover(sender: nil)
+    }
+
+    private func viewLogs() {
+        let logURL = URL(fileURLWithPath: "\(projectRoot)/output/native.log")
+        NSWorkspace.shared.open(logURL)
+        closePopover(sender: nil)
+    }
+
+    private func quitApp() {
+        if serverRunning() {
+            stopServer()
+        }
+        NSApp.terminate(nil)
     }
 
     private func updateStatus() {
         let running = serverRunning()
-        if running {
-            starting = false
-            if toggle.state != .on { toggle.state = .on }
-            status.stringValue = "ON — running at 127.0.0.1:8501"
-            if !openedBrowser {
-                openedBrowser = true
-                NSWorkspace.shared.open(URL(string: "http://127.0.0.1:8501")!)
+        
+        DispatchQueue.main.async {
+            self.appState.isRunning = running
+            
+            if running {
+                self.appState.isStarting = false
+                self.appState.statusText = "ON (Port 8501)"
+            } else if self.appState.isStarting && (self.serverProcess?.isRunning ?? false) {
+                self.appState.statusText = "Starting..."
+            } else {
+                self.appState.isStarting = false
+                self.appState.statusText = "OFF"
             }
-        } else if starting && (serverProcess?.isRunning ?? false) {
-            if toggle.state != .on { toggle.state = .on }
-            status.stringValue = "Starting…"
-        } else if status.stringValue == "ON — running at 127.0.0.1:8501" || status.stringValue == "Stopping…" || !starting {
-            starting = false
-            if toggle.state != .off { toggle.state = .off }
-            status.stringValue = "OFF"
-        } else if status.stringValue == "Checking status…" {
-            status.stringValue = "OFF"
+            
+            self.updateIcon()
+        }
+    }
+    
+    private func updateIcon() {
+        if let button = statusItem.button {
+            if appState.isRunning {
+                button.image = NSImage(systemSymbolName: "wand.and.stars.inverse", accessibilityDescription: "Running")
+                if button.image == nil { button.title = "🌟" }
+            } else {
+                button.image = NSImage(systemSymbolName: "wand.and.stars", accessibilityDescription: "Ready")
+                if button.image == nil { button.title = "✨" }
+            }
         }
     }
 
@@ -133,16 +258,10 @@ final class ToggleController: NSObject, NSApplicationDelegate, NSWindowDelegate 
         process.waitUntilExit()
         return String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
     }
-
-    func windowShouldClose(_ sender: NSWindow) -> Bool {
-        if serverRunning() { stopServer() }
-        NSApp.terminate(nil)
-        return true
-    }
 }
 
 let app = NSApplication.shared
-let controller = ToggleController()
+let controller = MenuBarController()
 app.delegate = controller
 app.setActivationPolicy(.accessory)
 app.run()
