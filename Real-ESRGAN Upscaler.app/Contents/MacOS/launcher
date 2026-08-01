@@ -5,11 +5,9 @@ LOG="$APP_ROOT/output/native.log"
 PIDFILE="$APP_ROOT/output/native.pid"
 mkdir -p "$APP_ROOT/output"
 
-if curl -fsS http://127.0.0.1:8501/ >/dev/null 2>&1; then
-    choice=$(osascript -e 'button returned of (display dialog "Real-ESRGAN Upscaler is currently ON" buttons {"Cancel", "OFF"} default button "OFF" with title "Real-ESRGAN Upscaler")') || exit 0
-    [ "$choice" = "OFF" ] || exit 0
-    # Kill the process actually listening on the app port. The launcher PID
-    # can be different from Streamlit's surviving child process.
+stop_server() {
+    # Stop the process actually listening on the app port. The launcher PID
+    # can differ from Streamlit's surviving child process.
     for attempt in 1 2 3 4 5 6; do
         pids=$(/usr/sbin/lsof -tiTCP:8501 -sTCP:LISTEN 2>/dev/null || true)
         if [ -z "$pids" ]; then
@@ -21,25 +19,43 @@ if curl -fsS http://127.0.0.1:8501/ >/dev/null 2>&1; then
     rm -f "$PIDFILE"
     if curl -fsS http://127.0.0.1:8501/ >/dev/null 2>&1; then
         osascript -e 'display dialog "The server did not stop. Check output/native.log." buttons {"OK"} default button "OK" with title "Real-ESRGAN Upscaler"' >/dev/null 2>&1 || true
-        exit 1
+        return 1
     fi
     osascript -e 'display notification "Upscaler stopped" with title "Real-ESRGAN"' 2>/dev/null || true
-    exit 0
-else
-    choice=$(osascript -e 'button returned of (display dialog "Real-ESRGAN Upscaler is currently OFF" buttons {"Cancel", "ON"} default button "ON" with title "Real-ESRGAN Upscaler")') || exit 0
-    [ "$choice" = "ON" ] || exit 0
-fi
+    return 0
+}
 
-nohup "$APP_ROOT/run_native.sh" >"$LOG" 2>&1 </dev/null &
-echo $! > "$PIDFILE"
-for i in $(seq 1 30); do
+while true; do
     if curl -fsS http://127.0.0.1:8501/ >/dev/null 2>&1; then
-        open http://127.0.0.1:8501
-        osascript -e 'display notification "Upscaler started" with title "Real-ESRGAN"' 2>/dev/null || true
-        exit 0
+        choice=$(osascript -e 'button returned of (display dialog "Real-ESRGAN Upscaler is currently ON" buttons {"Close", "OFF"} default button "OFF" with title "Real-ESRGAN Upscaler")') || exit 0
+        if [ "$choice" = "OFF" ]; then
+            stop_server || exit 1
+        else
+            exit 0
+        fi
+    else
+        choice=$(osascript -e 'button returned of (display dialog "Real-ESRGAN Upscaler is currently OFF" buttons {"Close", "ON"} default button "ON" with title "Real-ESRGAN Upscaler")') || exit 0
+        if [ "$choice" != "ON" ]; then
+            exit 0
+        fi
+
+        nohup "$APP_ROOT/run_native.sh" >"$LOG" 2>&1 </dev/null &
+        echo $! > "$PIDFILE"
+        started=0
+        for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8501/ >/dev/null 2>&1; then
+                open http://127.0.0.1:8501
+                osascript -e 'display notification "Upscaler started" with title "Real-ESRGAN"' 2>/dev/null || true
+                started=1
+                break
+            fi
+            sleep 1
+        done
+        if [ "$started" -eq 0 ]; then
+            rm -f "$PIDFILE"
+            osascript -e 'display dialog "The upscaler did not start. The error log will open." buttons {"OK"} default button "OK" with title "Real-ESRGAN Upscaler"' >/dev/null 2>&1 || true
+            open -a TextEdit "$LOG"
+            exit 1
+        fi
     fi
-    sleep 1
 done
-rm -f "$PIDFILE"
-osascript -e 'display dialog "The upscaler did not start. The error log will open." buttons {"OK"} default button "OK" with title "Real-ESRGAN Upscaler"' >/dev/null 2>&1 || true
-open -a TextEdit "$LOG"
