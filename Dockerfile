@@ -17,8 +17,7 @@ WORKDIR /workspace
 
 # Pinned stack 
 RUN pip install --upgrade pip "numpy<2" && \
-    pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cu116 \
-        torch==1.12.1+cu116 torchvision==0.13.1+cu116 torchaudio==0.12.1+cu116 && \
+    pip install --no-cache-dir "torch<2.2" "torchvision<0.17" "torchaudio<2.2" && \
     pip install --no-cache-dir \
         basicsr==1.4.2 \
         facexlib==0.2.5 \
