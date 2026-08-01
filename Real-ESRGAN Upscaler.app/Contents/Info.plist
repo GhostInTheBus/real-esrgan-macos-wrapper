@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleExecutable</key>
-	<string>launcher</string>
+	<string>toggle</string>
 	<key>CFBundleIdentifier</key>
 	<string>local.realesrgan.upscaler</string>
 	<key>CFBundleName</key>
