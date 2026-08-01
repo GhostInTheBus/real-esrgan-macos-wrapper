@@ -8,12 +8,20 @@ mkdir -p "$APP_ROOT/output"
 if curl -fsS http://127.0.0.1:8501/ >/dev/null 2>&1; then
     choice=$(osascript -e 'button returned of (display dialog "Real-ESRGAN Upscaler is currently ON" buttons {"Cancel", "OFF"} default button "OFF" with title "Real-ESRGAN Upscaler")') || exit 0
     [ "$choice" = "OFF" ] || exit 0
-    if [ -f "$PIDFILE" ]; then
-        pid=$(cat "$PIDFILE")
-        kill "$pid" 2>/dev/null || true
-        rm -f "$PIDFILE"
-    else
-        pkill -f "$APP_ROOT/streamlit_app.py" 2>/dev/null || true
+    # Kill the process actually listening on the app port. The launcher PID
+    # can be different from Streamlit's surviving child process.
+    for attempt in 1 2 3 4 5 6; do
+        pids=$(/usr/sbin/lsof -tiTCP:8501 -sTCP:LISTEN 2>/dev/null || true)
+        if [ -z "$pids" ]; then
+            break
+        fi
+        kill $pids 2>/dev/null || true
+        sleep 0.5
+    done
+    rm -f "$PIDFILE"
+    if curl -fsS http://127.0.0.1:8501/ >/dev/null 2>&1; then
+        osascript -e 'display dialog "The server did not stop. Check output/native.log." buttons {"OK"} default button "OK" with title "Real-ESRGAN Upscaler"' >/dev/null 2>&1 || true
+        exit 1
     fi
     osascript -e 'display notification "Upscaler stopped" with title "Real-ESRGAN"' 2>/dev/null || true
     exit 0
