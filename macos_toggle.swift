@@ -8,6 +8,7 @@ final class ToggleController: NSObject, NSApplicationDelegate, NSWindowDelegate 
     private var status: NSTextField!
     private var serverProcess: Process?
     private var openedBrowser = false
+    private var starting = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let content = NSView(frame: NSRect(x: 0, y: 0, width: 360, height: 150))
@@ -61,6 +62,7 @@ final class ToggleController: NSObject, NSApplicationDelegate, NSWindowDelegate 
     private func startServer() {
         if serverRunning() { return }
         status.stringValue = "Starting…"
+        starting = true
         openedBrowser = false
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -83,6 +85,9 @@ final class ToggleController: NSObject, NSApplicationDelegate, NSWindowDelegate 
 
     private func stopServer() {
         status.stringValue = "Stopping…"
+        starting = false
+        serverProcess?.terminate()
+        serverProcess = nil
         _ = shell("/usr/sbin/lsof -tiTCP:8501 -sTCP:LISTEN").split(separator: "\n").map {
             _ = shell("/bin/kill \(String($0))")
         }
@@ -91,14 +96,20 @@ final class ToggleController: NSObject, NSApplicationDelegate, NSWindowDelegate 
 
     private func updateStatus() {
         let running = serverRunning()
-        if toggle.state != (running ? .on : .off) { toggle.state = running ? .on : .off }
         if running {
+            starting = false
+            if toggle.state != .on { toggle.state = .on }
             status.stringValue = "ON — running at 127.0.0.1:8501"
             if !openedBrowser {
                 openedBrowser = true
                 NSWorkspace.shared.open(URL(string: "http://127.0.0.1:8501")!)
             }
-        } else if status.stringValue == "ON — running at 127.0.0.1:8501" || status.stringValue == "Stopping…" {
+        } else if starting && (serverProcess?.isRunning ?? false) {
+            if toggle.state != .on { toggle.state = .on }
+            status.stringValue = "Starting…"
+        } else if status.stringValue == "ON — running at 127.0.0.1:8501" || status.stringValue == "Stopping…" || !starting {
+            starting = false
+            if toggle.state != .off { toggle.state = .off }
             status.stringValue = "OFF"
         } else if status.stringValue == "Checking status…" {
             status.stringValue = "OFF"
