@@ -6,18 +6,9 @@ services:
       - "8501:8501"
     volumes:
       - ./:/workspace
-    environment:
-      PYTHONPATH: "/workspace/Real-ESRGAN:${PYTHONPATH}"
-    runtime: nvidia
     ipc: host
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - capabilities: [gpu]
     command: >
       bash -lc "
-        # DO NOT install PyPI realesrgan here;
-        # start Streamlit directly, using the repo on PYTHONPATH
+        pip install -e /workspace/Real-ESRGAN
         streamlit run /workspace/streamlit_app.py --server.port=8501 --server.address=0.0.0.0
       "
