@@ -32,5 +32,6 @@ for i in $(seq 1 30); do
     fi
     sleep 1
 done
+rm -f "$PIDFILE"
 osascript -e 'display dialog "The upscaler did not start. The error log will open." buttons {"OK"} default button "OK" with title "Real-ESRGAN Upscaler"' >/dev/null 2>&1 || true
 open -a TextEdit "$LOG"
