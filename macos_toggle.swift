@@ -1,16 +1,20 @@
 import Cocoa
 import SwiftUI
 import Combine
+import UserNotifications
+import ServiceManagement
 
 class AppState: ObservableObject {
     @Published var isRunning = false
     @Published var isStarting = false
     @Published var statusText = "Checking status..."
+    @Published var launchAtLogin = false
 }
 
 struct PopoverView: View {
     @ObservedObject var state: AppState
     let toggleAction: (Bool) -> Void
+    let launchAtLoginAction: (Bool) -> Void
     let openBrowserAction: () -> Void
     let viewLogsAction: () -> Void
     let quitAction: () -> Void
@@ -51,8 +55,19 @@ struct PopoverView: View {
                 .labelsHidden()
                 .toggleStyle(SwitchToggleStyle())
             }
-
+            
             Divider()
+            
+            if #available(macOS 13.0, *) {
+                Toggle("Launch at Login", isOn: Binding(
+                    get: { self.state.launchAtLogin },
+                    set: { newValue in self.launchAtLoginAction(newValue) }
+                ))
+                .toggleStyle(CheckboxToggleStyle())
+                .font(.subheadline)
+                
+                Divider()
+            }
 
             VStack(spacing: 8) {
                 Button(action: openBrowserAction) {
@@ -93,7 +108,7 @@ struct PopoverView: View {
     }
 }
 
-final class MenuBarController: NSObject, NSApplicationDelegate {
+final class MenuBarController: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     private let projectRoot = "/Users/Joe/real-esrgan-web-app"
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
@@ -102,6 +117,7 @@ final class MenuBarController: NSObject, NSApplicationDelegate {
     private var updateTimer: Timer?
     
     private let appState = AppState()
+    private var wasRunning = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -112,11 +128,21 @@ final class MenuBarController: NSObject, NSApplicationDelegate {
             button.target = self
         }
         
+        if #available(macOS 13.0, *) {
+            appState.launchAtLogin = SMAppService.mainApp.status == .enabled
+        }
+        
+        UNUserNotificationCenter.current().delegate = self
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        
         let view = PopoverView(
             state: appState,
             toggleAction: { [weak self] isOn in
                 if isOn { self?.startServer() }
                 else { self?.stopServer() }
+            },
+            launchAtLoginAction: { [weak self] isOn in
+                self?.toggleLaunchAtLogin(isOn)
             },
             openBrowserAction: { [weak self] in self?.openBrowser() },
             viewLogsAction: { [weak self] in self?.viewLogs() },
@@ -124,13 +150,30 @@ final class MenuBarController: NSObject, NSApplicationDelegate {
         )
         
         popover = NSPopover()
-        popover.contentSize = NSSize(width: 250, height: 220)
+        popover.contentSize = NSSize(width: 250, height: 260)
         popover.behavior = .transient
         popover.contentViewController = NSHostingController(rootView: view)
 
         updateStatus()
         updateTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             self?.updateStatus()
+        }
+    }
+    
+    private func toggleLaunchAtLogin(_ enable: Bool) {
+        if #available(macOS 13.0, *) {
+            do {
+                if enable {
+                    try SMAppService.mainApp.register()
+                } else {
+                    try SMAppService.mainApp.unregister()
+                }
+                appState.launchAtLogin = enable
+            } catch {
+                print("Failed to toggle launch at login: \(error)")
+                // Revert state on failure
+                appState.launchAtLogin = SMAppService.mainApp.status == .enabled
+            }
         }
     }
 
@@ -226,7 +269,29 @@ final class MenuBarController: NSObject, NSApplicationDelegate {
             }
             
             self.updateIcon()
+            
+            if running && !self.wasRunning {
+                self.sendNotification(title: "Upscaler Ready", body: "Real-ESRGAN server is now running.")
+            }
+            self.wasRunning = running
         }
+    }
+    
+    private func sendNotification(title: String, body: String) {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+        
+        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request)
+    }
+    
+    // Delegate method to show notifications even when app is active (in foreground)
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                willPresent notification: UNNotification,
+                                withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([.banner, .sound])
     }
     
     private func updateIcon() {
