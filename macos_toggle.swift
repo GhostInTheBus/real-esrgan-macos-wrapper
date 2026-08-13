@@ -158,6 +158,13 @@ final class MenuBarController: NSObject, NSApplicationDelegate, UNUserNotificati
         updateTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             self?.updateStatus()
         }
+
+        showPopover(sender: nil)
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showPopover(sender: nil)
+        return true
     }
     
     private func toggleLaunchAtLogin(_ enable: Bool) {
@@ -328,5 +335,5 @@ final class MenuBarController: NSObject, NSApplicationDelegate, UNUserNotificati
 let app = NSApplication.shared
 let controller = MenuBarController()
 app.delegate = controller
-app.setActivationPolicy(.accessory)
+app.setActivationPolicy(.regular)
 app.run()
