@@ -2,6 +2,10 @@
 
 An unofficial native macOS wrapper around Real-ESRGAN with a Streamlit image/video interface and a double-clickable ON/OFF app launcher.
 
+https://github.com/user-attachments/assets/a8c35069-e355-4da6-ac17-819b3ecc8476
+
+[Watch on YouTube](https://youtu.be/omHx_UtYLW0) (1:29)
+
 <p align="center">
   <img src="Real-ESRGAN/assets/realesrgan_logo.png" alt="Real-ESRGAN" width="300"/>
 </p>
