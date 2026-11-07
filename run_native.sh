@@ -2,7 +2,7 @@
 set -e
 
 APP_ROOT="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-MINIFORGE="/Users/Joe/Miniforge3"
+MINIFORGE="${MINIFORGE:-$HOME/Miniforge3}"
 
 if [ ! -x "$MINIFORGE/bin/python" ]; then
   echo "Missing Miniforge Python at $MINIFORGE/bin/python" >&2
