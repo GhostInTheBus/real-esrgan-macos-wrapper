@@ -35,7 +35,7 @@ Native macOS (Apple Silicon):
 # Open http://127.0.0.1:8501
 ```
 
-The native launcher uses `/Users/Joe/Miniforge3/bin/python`, the checked-out
+The native launcher uses `~/Miniforge3/bin/python`, the checked-out
 BasicSR source, and the model weights already present in `output/models/`.
 Native paths are resolved relative to this project, so Docker's `/workspace`
 mount is not required.
