@@ -1,6 +1,6 @@
 #!/bin/sh
 set -e
-APP_ROOT="/Users/Joe/real-esrgan-web-app"
+APP_ROOT="${REAL_ESRGAN_ROOT:-$HOME/real-esrgan-web-app}"
 LOG="$APP_ROOT/output/native.log"
 PIDFILE="$APP_ROOT/output/native.pid"
 mkdir -p "$APP_ROOT/output"
