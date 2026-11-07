@@ -2,7 +2,7 @@ import Cocoa
 import Foundation
 
 final class ToggleController: NSObject, NSApplicationDelegate, NSWindowDelegate {
-    private let projectRoot = "/Users/Joe/real-esrgan-web-app"
+    private let projectRoot = NSHomeDirectory() + "/real-esrgan-web-app"
     private var window: NSWindow!
     private var toggle: NSSwitch!
     private var status: NSTextField!
